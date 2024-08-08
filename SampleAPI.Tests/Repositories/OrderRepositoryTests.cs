@@ -1,68 +1,106 @@
-using FluentAssertions;
-using FluentAssertions.Extensions;
-using Moq;
+using Microsoft.EntityFrameworkCore;
 using SampleAPI.Entities;
 using SampleAPI.Repositories;
-using SampleAPI.Requests;
-using System.Data.Entity;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using Xunit;
 
-namespace SampleAPI.Tests.Repositories
+namespace SampleAPI.Tests
 {
     public class OrderRepositoryTests
     {
-        private readonly Mock<DbSet<Order>> _mockSet;
-        private readonly Mock<SampleApiDbContext> _mockContext;
-        private readonly OrderRepository _repository;
-
-        public OrderRepositoryTests()
+        private SampleApiDbContext CreateInMemoryContext()
         {
-            _mockSet = new Mock<DbSet<Order>>();
-            _mockContext = new Mock<SampleApiDbContext>();
-            _mockContext.Setup(c => c.Orders).Returns(_mockSet.Object);
-            _repository = new OrderRepository(_mockContext.Object);
+            var options = new DbContextOptionsBuilder<SampleApiDbContext>()
+                .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
+                .Options;
+
+            return new SampleApiDbContext(options);
+        }
+
+        private OrderRepository CreateRepository(SampleApiDbContext context)
+        {
+            return new OrderRepository(context);
         }
 
         [Fact]
-        public async Task GetRecentOrdersAsync()
+        public async Task GetRecentOrdersAsyncs()
         {
-            var orders = new List<Order>
+            var context = CreateInMemoryContext();
+            var repository = CreateRepository(context);
+
+            context.Orders.Add(new Order
             {
-                new Order { Id = 1, Date = DateTime.Now.AddDays(-1), Description = "Veg", Name = "Veg Biriyani", IsDeleted = false, IsInvoiced = true },
-                new Order { Id = 2, Date = DateTime.Now.AddDays(-2), Description = "Non-Veg", Name = "Egg Biriyani", IsDeleted = false, IsInvoiced = true }
-            }.AsQueryable();
+                Id = 1,
+                Date = DateTime.UtcNow.AddHours(-1),
+                IsDeleted = false,
+                Description = "Veg", 
+                Name = "Veg Biriyani" 
+            });
+            context.Orders.Add(new Order
+            {
+                Id = 2,
+                Date = DateTime.UtcNow.AddDays(-2),
+                IsDeleted = false,
+                Description = "Non-veg",
+                Name = "Chicken Biriyani" 
+            });
+            
+            await context.SaveChangesAsync();
 
-            _mockSet.As<IQueryable<Order>>().Setup(m => m.Provider).Returns(orders.Provider);
-            _mockSet.As<IQueryable<Order>>().Setup(m => m.Expression).Returns(orders.Expression);
-            _mockSet.As<IQueryable<Order>>().Setup(m => m.ElementType).Returns(orders.ElementType);
-            _mockSet.As<IQueryable<Order>>().Setup(m => m.GetEnumerator()).Returns(orders.GetEnumerator());
+            var recentOrders = await repository.GetRecentOrdersAsync();
 
-            var result = await _repository.GetRecentOrdersAsync();
-
-            Assert.Single(result);
-            Assert.Equal(1, result.First().Id);
+            Assert.Single(recentOrders); 
+            var order = recentOrders.First();
+            Assert.Equal(1, order.Id);
         }
 
         [Fact]
         public async Task AddNewOrderAsync()
         {
-            var order = new Order { Id = 1, Date = DateTime.UtcNow, IsDeleted = false };
-            _mockSet.Setup(m => m.AddAsync(It.IsAny<Order>(), It.IsAny<CancellationToken>())).ReturnsAsync(new EntityEntry<Order>(order));
+            var context = CreateInMemoryContext();
+            var repository = CreateRepository(context);
 
-            var result = await _repository.AddNewOrderAsync(order);
+            var newOrder = new Order
+            {
+                Date = DateTime.UtcNow.AddHours(-1),
+                IsDeleted = false,
+                Description = "Veg",
+                Name = "Veg Biriyani"
+            };
 
-            Assert.NotNull(result);
-            Assert.Equal(1, result.Id);
+            var addedOrder = await repository.AddNewOrderAsync(newOrder);
+
+            Assert.NotNull(addedOrder);
+            Assert.Equal(newOrder.Date, addedOrder.Date);
+            Assert.Equal(newOrder.Description, addedOrder.Description); 
+            Assert.Equal(newOrder.Name, addedOrder.Name);
         }
+
 
         [Fact]
         public async Task DeleteOrderAsync()
         {
-            var order = new Order { Id = 1, Date = DateTime.UtcNow, IsDeleted = false };
-            _mockSet.Setup(m => m.FindAsync(It.IsAny<object[]>())).ReturnsAsync(order);
+            var context = CreateInMemoryContext();
+            var repository = CreateRepository(context);
 
-            await _repository.DeleteOrderAsync(1);
+            var order = new Order
+            {
+                Id = 1,
+                Date = DateTime.UtcNow.AddHours(-1),
+                IsDeleted = false,
+                Description = "Veg",
+                Name = "Veg Biriyani"
+            };
+            context.Orders.Add(order);
+            await context.SaveChangesAsync();
 
-            _mockSet.Verify(m => m.Remove(It.IsAny<Order>()), Times.Once);
+            await repository.DeleteOrderAsync(order);
+
+            var deletedOrder = await context.Orders.FindAsync(order.Id);
+            Assert.Null(deletedOrder); 
         }
     }
 }

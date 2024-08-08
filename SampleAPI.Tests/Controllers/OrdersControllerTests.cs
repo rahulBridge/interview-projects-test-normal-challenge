@@ -5,8 +5,10 @@ using Microsoft.Extensions.Logging;
 using Moq;
 using SampleAPI.Controllers;
 using SampleAPI.Entities;
+using SampleAPI.Queries;
 using SampleAPI.Repositories;
 using SampleAPI.Requests;
+using SampleAPI.Commands;
 
 namespace SampleAPI.Tests.Controllers
 {
@@ -63,11 +65,11 @@ namespace SampleAPI.Tests.Controllers
         public async Task DeleteOrder()
         {
             _mediatorMock.Setup(m => m.Send(It.IsAny<DeleteOrderCommand>(), default))
-                .Returns(Task.CompletedTask);
+                .ReturnsAsync(MediatR.Unit.Value);
 
             var result = await _controller.DeleteOrder(1);
 
-            Assert.IsType<NoContentResult>(result);
+            result.Should().BeOfType<NoContentResult>();
         }
     }
 }
